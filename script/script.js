@@ -1,5 +1,5 @@
 // =========================================================================
-// KONFIGURASI STORAGE BERSIH & STATE UTAMA MA-PLUS Al-ISLAM (TANPA DATA BAWAAN)
+// KONFIGURASI STORAGE BERSIH & STATE UTAMA MA-PLUS Al-ISLAM (TERHUBUNG SUPABASE)
 // =========================================================================
 const STORAGE_KEY = 'maplus_alislam_clean_v1';
 
@@ -55,7 +55,7 @@ if (sessionUserRaw) {
 let kelasAktifGuru = sessionStorage.getItem('kelasAktifGuru') || '';
 let mapelAktifGuru = sessionStorage.getItem('mapelAktifGuru') || '';
 
-function saveState() {
+function saveState(syncToCloud = true) {
   state.mapel = getDaftarMapel();
   state.tugas = getDaftarTugas();
   state.materi = {
@@ -83,6 +83,12 @@ function saveState() {
   };
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+
+  if (syncToCloud && window.SupabaseDB && typeof window.SupabaseDB.pushAllFromState === 'function') {
+    window.SupabaseDB.pushAllFromState(state).catch((err) => {
+      console.warn('Sinkronisasi ke Supabase tertunda:', err);
+    });
+  }
 }
 
 function simpanSesiUser() {
@@ -91,7 +97,7 @@ function simpanSesiUser() {
   } else {
     sessionStorage.removeItem('maplus_current_user');
   }
-  saveState();
+  saveState(false);
 }
 
 // =========================================================================
@@ -456,7 +462,7 @@ window.addEventListener('popstate', (e) => {
 });
 
 // =========================================================================
-// NAVBAR, LOGIN & LOGOUT
+// NAVBAR, LOGIN & LOGOUT (TERHUBUNG SUPABASE)
 // =========================================================================
 function updateNavbar() {
   const userBadge = document.getElementById('user-badge');
@@ -533,7 +539,7 @@ function switchLoginTab(tab) {
   }
 }
 
-function doLoginSiswa(e) {
+async function doLoginSiswa(e) {
   e.preventDefault();
   const inputNis = document.getElementById('login-nis');
   const inputPass = document.getElementById('login-pass-siswa');
@@ -541,14 +547,32 @@ function doLoginSiswa(e) {
 
   const nisn = inputNis.value.trim();
   const passwordInput = inputPass.value.trim();
-  const foundSiswa = state.siswa.find(s => s.nisn === nisn);
+
+  if (window.SupabaseDB && typeof window.SupabaseDB.pullAllToLocal === 'function') {
+    await window.SupabaseDB.pullAllToLocal(state);
+    saveState(false);
+  }
+
+  let foundSiswa = state.siswa.find(s => String(s.nisn).trim() === nisn);
+
+  if (!foundSiswa && window.SupabaseDB && typeof window.SupabaseDB.getClient === 'function') {
+    const sb = window.SupabaseDB.getClient();
+    if (sb) {
+      const { data } = await sb.from('siswa').select('*').eq('nisn', nisn).maybeSingle();
+      if (data) {
+        foundSiswa = data;
+        state.siswa.push(data);
+        saveState(false);
+      }
+    }
+  }
 
   if (!foundSiswa) {
     showToast("NISN tidak ditemukan! Pastikan data siswa sudah diinput oleh Guru/Admin.", "error");
     return;
   }
 
-  const validPassword = foundSiswa.password ? foundSiswa.password : "123456";
+  const validPassword = foundSiswa.password ? String(foundSiswa.password).trim() : "123456";
   if (passwordInput === validPassword) {
     state.currentUser = { role: 'siswa', data: foundSiswa };
     simpanSesiUser();
@@ -563,7 +587,7 @@ function doLoginSiswa(e) {
   }
 }
 
-function doLoginStaf(e) {
+async function doLoginStaf(e) {
   e.preventDefault();
   const inputNipEl = document.getElementById('login-nip');
   const inputPassEl = document.getElementById('login-pass-staf');
@@ -571,6 +595,10 @@ function doLoginStaf(e) {
   const inputPass = inputPassEl.value.trim();
 
   if (inputNip === 'admin' && inputPass === 'admin123') {
+    if (window.SupabaseDB && typeof window.SupabaseDB.pullAllToLocal === 'function') {
+      await window.SupabaseDB.pullAllToLocal(state);
+      saveState(false);
+    }
     state.currentUser = { role: 'admin', data: { nama: 'Administrator Sekolah', mapel: null, mapelList: [] } };
     simpanSesiUser();
     kelasAktifGuru = '';
@@ -585,9 +613,30 @@ function doLoginStaf(e) {
     return;
   }
 
-  const foundGuru = state.guru.find(g => g.nip === inputNip);
+  if (window.SupabaseDB && typeof window.SupabaseDB.pullAllToLocal === 'function') {
+    await window.SupabaseDB.pullAllToLocal(state);
+    saveState(false);
+  }
+
+  let foundGuru = state.guru.find(g => String(g.nip).trim() === inputNip);
+
+  if (!foundGuru && window.SupabaseDB && typeof window.SupabaseDB.getClient === 'function') {
+    const sb = window.SupabaseDB.getClient();
+    if (sb) {
+      const { data } = await sb.from('guru').select('*').eq('nip', inputNip).maybeSingle();
+      if (data) {
+        foundGuru = {
+          ...data,
+          mapelList: Array.isArray(data.mapel_list) ? data.mapel_list : (data.mapel ? [data.mapel] : [])
+        };
+        state.guru.push(foundGuru);
+        saveState(false);
+      }
+    }
+  }
+
   if (foundGuru) {
-    if (foundGuru.password === inputPass) {
+    if (String(foundGuru.password).trim() === inputPass) {
       state.currentUser = { role: 'admin', data: foundGuru };
       simpanSesiUser();
       kelasAktifGuru = '';
@@ -878,7 +927,7 @@ function renderDashboard() {
 }
 
 // =========================================================================
-// SINKRONISASI DROPDOWN MATA PELAJARAN DI SELURUH HALAMAN (TANPA FALLBACK BAWAAN)
+// SINKRONISASI DROPDOWN MATA PELAJARAN DI SELURUH HALAMAN
 // =========================================================================
 function sinkronisasiDropdownMapel() {
   const daftarMapel = getDaftarMapel();
@@ -952,7 +1001,7 @@ function sinkronisasiDropdownMapel() {
 }
 
 // =========================================================================
-// MANAJEMEN MATA PELAJARAN (KOSONG DI AWAL, DENGAN PILIHAN KELAS)
+// MANAJEMEN MATA PELAJARAN
 // =========================================================================
 function getDaftarMapel() {
   const saved = localStorage.getItem('ma_daftar_mapel');
@@ -1104,6 +1153,9 @@ function hapusMataPelajaran(idMapel) {
 
   const sisaMapel = daftarMapel.filter(m => m.id !== idMapel);
   localStorage.setItem('ma_daftar_mapel', JSON.stringify(sisaMapel));
+  if (window.SupabaseDB && typeof window.SupabaseDB.deleteRow === 'function') {
+    window.SupabaseDB.deleteRow('mapel', 'id', idMapel);
+  }
   saveState();
 
   renderDaftarMapel();
@@ -1556,6 +1608,7 @@ function mulaiPemantauTimerGlobal() {
 
     if (adaPerubahan) {
       simpanSemuaKuisPerKelas(semuaKuis);
+      saveState();
       const viewKuis = document.getElementById('view-kuis');
       if (viewKuis && !viewKuis.classList.contains('hidden')) {
         renderKuisAktif();
@@ -2187,6 +2240,9 @@ function hapusTugas(idTugas) {
   const target = getDaftarTugas().find(t => t.id === idTugas);
   const sisa = getDaftarTugas().filter(t => t.id !== idTugas);
   localStorage.setItem('ma_daftar_tugas', JSON.stringify(sisa));
+  if (window.SupabaseDB && typeof window.SupabaseDB.deleteRow === 'function') {
+    window.SupabaseDB.deleteRow('tugas', 'id', idTugas);
+  }
 
   if (target) {
     sinkronisasiNilaiOtomatis(false, target.kelas, target.mapel);
@@ -2554,7 +2610,7 @@ function renderPortalSiswa() {
 }
 
 // =========================================================================
-// MANAGEMENT SISWA (KOSONG DI AWAL)
+// MANAGEMENT SISWA
 // =========================================================================
 function renderSiswaTable() {
   const tbody = document.getElementById('table-siswa-body');
@@ -2641,6 +2697,9 @@ function deleteSiswa(id) {
 
   if (confirm("Yakin ingin menghapus siswa ini?")) {
     state.siswa = state.siswa.filter(s => s.id !== id);
+    if (window.SupabaseDB && typeof window.SupabaseDB.deleteRow === 'function') {
+      window.SupabaseDB.deleteRow('siswa', 'id', id);
+    }
     saveState();
     renderSiswaTable();
     perbaruiTampilanKelasGuru();
@@ -2649,7 +2708,7 @@ function deleteSiswa(id) {
 }
 
 // =========================================================================
-// MANAGEMENT GURU (KOSONG DI AWAL): TAMBAH AKUN BARU + EDIT / TAMBAH MAPEL
+// MANAGEMENT GURU
 // =========================================================================
 function renderGuruTable() {
   const tbody = document.getElementById('table-guru-body');
@@ -2755,6 +2814,9 @@ function saveGuruForm(e) {
 function deleteGuru(id) {
   if (confirm("Yakin ingin menghapus data guru ini?")) {
     state.guru = state.guru.filter(g => g.id !== id);
+    if (window.SupabaseDB && typeof window.SupabaseDB.deleteRow === 'function') {
+      window.SupabaseDB.deleteRow('guru', 'id', id);
+    }
     saveState();
     renderGuruTable();
     showToast("Data guru dihapus", "error");
@@ -3264,7 +3326,7 @@ function renderMateriKategori(jenis) {
 }
 
 // =========================================================================
-// MANAJEMEN PENGUMUMAN MADRASAH (KOSONG DI AWAL)
+// MANAJEMEN PENGUMUMAN MADRASAH
 // =========================================================================
 function getDaftarPengumuman() {
   const saved = localStorage.getItem('ma_pengumuman_madrasah');
@@ -3411,7 +3473,7 @@ function hapusPengumumanMadrasah(idPengumuman) {
 }
 
 // =========================================================================
-// GALERI FOTO & VIDEO SEKOLAH (KOSONG DI AWAL, BISA DIKELOLA ADMIN/GURU)
+// GALERI FOTO & VIDEO SEKOLAH
 // =========================================================================
 let indeksSlideGaleri = {};
 
@@ -3499,6 +3561,7 @@ async function simpanVideoGaleri() {
   });
 
   localStorage.setItem('ma_galeri_video', JSON.stringify(daftar));
+  saveState();
 
   if (judulEl) judulEl.value = '';
   if (fileEl) fileEl.value = '';
@@ -3523,6 +3586,7 @@ async function hapusVideoGaleri(idVideo) {
 
   const sisa = daftar.filter(v => v.id !== idVideo);
   localStorage.setItem('ma_galeri_video', JSON.stringify(sisa));
+  saveState();
   renderGaleriSekolah();
   showToast('Video galeri berhasil dihapus', 'error');
 }
@@ -3595,6 +3659,7 @@ async function simpanFotoGaleri() {
     });
 
     localStorage.setItem('ma_galeri_foto', JSON.stringify(daftar));
+    saveState();
 
     if (judulEl) judulEl.value = '';
     if (filesEl) filesEl.value = '';
@@ -3615,6 +3680,7 @@ function hapusFotoGaleri(idKartu) {
   const sisa = getDaftarGaleriFoto().filter(item => item.id !== idKartu);
   localStorage.setItem('ma_galeri_foto', JSON.stringify(sisa));
   delete indeksSlideGaleri[idKartu];
+  saveState();
   renderGaleriSekolah();
   showToast('Foto galeri berhasil dihapus', 'error');
 }
@@ -3801,9 +3867,9 @@ function closeModalPembuat() {
 }
 
 // =========================================================================
-// INISIALISASI AWAL & KONTROL VISIBILITAS ADMIN/GURU
+// SINKRONISASI DATA AWAL DARI SUPABASE & INISIALISASI HALAMAN
 // =========================================================================
-window.addEventListener('DOMContentLoaded', () => {
+function segarkanSemuaTampilan() {
   terapkanLatarBelakangDashboard();
   muatFotoStrukturPimpinan();
   renderGaleriSekolah();
@@ -3812,25 +3878,43 @@ window.addEventListener('DOMContentLoaded', () => {
     mulaiPemantauTimerGlobal();
   }
 
-  const tglInput = document.getElementById('presensi-tanggal');
-  if (tglInput && !tglInput.value) tglInput.valueAsDate = new Date();
-
   sinkronisasiDropdownMapel();
   renderDaftarMapel();
+  renderMapelCards();
   renderDaftarTugas();
   renderPengumumanMadrasah();
   renderMateriKategori('ebook');
   renderMateriKategori('ppt');
   renderMateriKategori('video');
+  renderSiswaTable();
+  renderGuruTable();
   updateVisibilitasDanStatistikMurid();
   perbaruiTampilanKelasGuru();
+  updateNavbar();
+  sinkronkanAksesMenuMobile();
+  if (window.lucide) lucide.createIcons();
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const tglInput = document.getElementById('presensi-tanggal');
+  if (tglInput && !tglInput.value) tglInput.valueAsDate = new Date();
+
+  segarkanSemuaTampilan();
 
   const initialView = location.hash ? location.hash.replace('#', '') : 'dashboard';
   history.replaceState({ view: initialView }, '', '#' + initialView);
   navigateTo(initialView, true);
 
-  sinkronkanAksesMenuMobile();
-  if (window.lucide) lucide.createIcons();
+  if (window.SupabaseDB && typeof window.SupabaseDB.pullAllToLocal === 'function') {
+    const synced = await window.SupabaseDB.pullAllToLocal(state);
+    if (synced) {
+      saveState(false);
+      segarkanSemuaTampilan();
+      if (state.currentView) {
+        navigateTo(state.currentView, true);
+      }
+    }
+  }
 });
 
 setInterval(() => {
