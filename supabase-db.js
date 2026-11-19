@@ -11,6 +11,8 @@ const SupabaseDB = (() => {
   function getClient() {
     if (!client && window.supabase && SUPABASE_URL.startsWith('https://') && SUPABASE_ANON_KEY) {
       client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } else if (!client) {
+      console.warn('Supabase client belum siap. Cek env-config.js dan CDN supabase-js.');
     }
     return client;
   }
@@ -28,10 +30,12 @@ const SupabaseDB = (() => {
         sb.from('app_store').select('*')
       ]);
 
+      if (siswaRes.error) console.error('Pull siswa error:', siswaRes.error.message);
       if (!siswaRes.error && Array.isArray(siswaRes.data)) {
         stateRef.siswa = siswaRes.data;
       }
 
+      if (guruRes.error) console.error('Pull guru error:', guruRes.error.message);
       if (!guruRes.error && Array.isArray(guruRes.data)) {
         stateRef.guru = guruRes.data.map((g) => ({
           ...g,
@@ -39,6 +43,7 @@ const SupabaseDB = (() => {
         }));
       }
 
+      if (mapelRes.error) console.error('Pull mapel error:', mapelRes.error.message);
       if (!mapelRes.error && Array.isArray(mapelRes.data)) {
         const mappedMapel = mapelRes.data.map((m) => ({
           ...m,
@@ -48,6 +53,7 @@ const SupabaseDB = (() => {
         localStorage.setItem('ma_daftar_mapel', JSON.stringify(mappedMapel));
       }
 
+      if (tugasRes.error) console.error('Pull tugas error:', tugasRes.error.message);
       if (!tugasRes.error && Array.isArray(tugasRes.data)) {
         const mappedTugas = tugasRes.data.map((t) => ({
           id: t.id,
@@ -63,6 +69,7 @@ const SupabaseDB = (() => {
         localStorage.setItem('ma_daftar_tugas', JSON.stringify(mappedTugas));
       }
 
+      if (storeRes.error) console.error('Pull app_store error:', storeRes.error.message);
       if (!storeRes.error && Array.isArray(storeRes.data)) {
         const mapStore = Object.fromEntries(storeRes.data.map((row) => [row.store_key, row.payload]));
 
@@ -102,7 +109,7 @@ const SupabaseDB = (() => {
 
       return true;
     } catch (err) {
-      console.warn('Supabase pull gagal, memakai cache lokal:', err.message);
+      console.error('Supabase pull gagal:', err);
       return false;
     }
   }
@@ -117,7 +124,7 @@ const SupabaseDB = (() => {
         nisn: String(s.nisn),
         nama: s.nama,
         password: s.password || '123456',
-        kelas: s.kelas,
+        kelas: s.kelas || '',
         jk: s.jk || 'L',
         foto: s.foto || ''
       }));
@@ -163,17 +170,26 @@ const SupabaseDB = (() => {
         { store_key: 'galeri_foto', payload: JSON.parse(localStorage.getItem('ma_galeri_foto') || '[]') }
       ];
 
-      await Promise.all([
-        siswaRows.length ? sb.from('siswa').upsert(siswaRows, { onConflict: 'id' }) : Promise.resolve(),
-        guruRows.length ? sb.from('guru').upsert(guruRows, { onConflict: 'id' }) : Promise.resolve(),
-        mapelRows.length ? sb.from('mapel').upsert(mapelRows, { onConflict: 'id' }) : Promise.resolve(),
-        tugasRows.length ? sb.from('tugas').upsert(tugasRows, { onConflict: 'id' }) : Promise.resolve(),
+      const results = await Promise.all([
+        siswaRows.length ? sb.from('siswa').upsert(siswaRows, { onConflict: 'id' }) : Promise.resolve({ error: null }),
+        guruRows.length ? sb.from('guru').upsert(guruRows, { onConflict: 'id' }) : Promise.resolve({ error: null }),
+        mapelRows.length ? sb.from('mapel').upsert(mapelRows, { onConflict: 'id' }) : Promise.resolve({ error: null }),
+        tugasRows.length ? sb.from('tugas').upsert(tugasRows, { onConflict: 'id' }) : Promise.resolve({ error: null }),
         sb.from('app_store').upsert(storePayload, { onConflict: 'store_key' })
       ]);
 
-      return true;
+      const labels = ['siswa', 'guru', 'mapel', 'tugas', 'app_store'];
+      let allOk = true;
+      results.forEach((res, idx) => {
+        if (res && res.error) {
+          console.error(`Push [${labels[idx]}] gagal:`, res.error.message, res.error.details || '');
+          allOk = false;
+        }
+      });
+
+      return allOk;
     } catch (err) {
-      console.warn('Supabase push tertunda:', err.message);
+      console.error('Supabase push error:', err);
       return false;
     }
   }
@@ -182,8 +198,11 @@ const SupabaseDB = (() => {
     const sb = getClient();
     if (!sb) return;
     try {
-      await sb.from(table).delete().eq(column, value);
-    } catch (_) {}
+      const { error } = await sb.from(table).delete().eq(column, value);
+      if (error) console.error(`Delete [${table}] gagal:`, error.message);
+    } catch (err) {
+      console.error(`Delete [${table}] error:`, err);
+    }
   }
 
   return {
@@ -193,3 +212,5 @@ const SupabaseDB = (() => {
     deleteRow
   };
 })();
+
+window.SupabaseDB = SupabaseDB;
