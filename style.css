@@ -1,0 +1,52 @@
+body { 
+  font-family: 'Inter', sans-serif;
+  background-image: linear-gradient(rgba(15, 23, 42, 0.82), rgba(6, 78, 59, 0.88)), url('https://images.unsplash.com/photo-1541829070764-84a7d30dd3f3?auto=format&fit=crop&w=1920&q=80');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+::-webkit-scrollbar { 
+  width: 6px; 
+  height: 6px; 
+}
+
+::-webkit-scrollbar-track { 
+  background: rgba(15, 23, 42, 0.1); 
+}
+
+::-webkit-scrollbar-thumb { 
+  background: #059669; 
+  border-radius: 4px; 
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+}
+
+/* Bentuk segilima presisi mengikuti logo MA-PLUS Al-ISLAM */
+.logo-segilima {
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+  -webkit-clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+}
+
+/* Pembungkus luar segilima agar tetap punya efek bayangan (drop-shadow) halus */
+.logo-segilima-wrapper {
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.28));
+}
+
+@media print {
+  .no-print { 
+    display: none !important; 
+  }
+  body { 
+    background: white; 
+    color: black; 
+  }
+  .glass-card { 
+    background: white !important; 
+    box-shadow: none !important; 
+    border: 1px solid #ccc; 
+  }
+}
